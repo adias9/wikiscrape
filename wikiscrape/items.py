@@ -11,5 +11,5 @@ import scrapy
 class WikiscrapeItem(scrapy.Item):
 	title = scrapy.Field()
 	link = scrapy.Field()
-	connect_links = scrapy.Field()
+	prev_link = scrapy.Field()
 	description = scrapy.Field()

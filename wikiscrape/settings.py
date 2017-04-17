@@ -14,6 +14,9 @@ BOT_NAME = 'wikiscrape'
 SPIDER_MODULES = ['wikiscrape.spiders']
 NEWSPIDER_MODULE = 'wikiscrape.spiders'
 
+FEED_FORMAT="wikilinks"
+FEED_URI="file:///tmp/wikiscrape.json"
+
 
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
 #USER_AGENT = 'wikiscrape (+http://www.yourdomain.com)'

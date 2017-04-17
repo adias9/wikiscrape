@@ -6,9 +6,25 @@ from wikiscrape.items import WikiscrapeItem
 from bs4 import BeautifulSoup
 import re
 
+import copy
+import six
+
+from scrapy.http import Request, HtmlResponse
+from scrapy.utils.spider import iterate_spider_output
+from scrapy.spiders import Spider
 
 class WikiscrapeSpider(CrawlSpider):
+    global seen
+    seen = set()
     name = "wikiscrape"
+
+    custom_settings = {
+        'DEPTH_LIMIT': 2,
+        'DEPTH_PRIORITY': 1,
+        'CHEDULER_DISK_QUEUE': 'scrapy.squeues.PickleFifoDiskQueue',
+        'SCHEDULER_MEMORY_QUEUE': 'scrapy.squeues.FifoMemoryQueue',
+    }
+
     allowed_domains = ["wikipedia.org"]
     start_urls = [
         "https://en.wikipedia.org/wiki/Kanye_West",
@@ -24,7 +40,7 @@ class WikiscrapeSpider(CrawlSpider):
                 "https://en\.wikipedia\.org/wiki/Portal.*",
                 "https://en\.wikipedia\.org/wiki/Special.*"
             ]),
-            callback="parse", follow=True),
+            callback="filter_links", follow=True),
     )
 
     def filter_links(self, response):
@@ -33,30 +49,63 @@ class WikiscrapeSpider(CrawlSpider):
         description = soup.find("div", {"id": "mw-content-text"})
         # get the first tag
         description = str(description.find('p'))
-        # divs = responseSelector.xpath("//div[contains(@id, 'mw-content-text')]")
-        # if divs.xpath(".//p")[0].re(r"born"):
+
         regexp1 = re.compile(r"born")
         if regexp1.search(description):
             regexp2 = re.compile(r"rapper")
             if regexp2.search(description):
-            # if divs.xpath(".//p")[0].re(r"rapper"):
                 item = WikiscrapeItem()
                 item['title'] = soup.find("h1", {"id": "firstHeading"}).string
-                # item['title'] = responseSelector.xpath("//*[contains(@id, 'firstHeading')]/text()").extract_first()
                 item['link'] = response.url
                 # extract all links from page
-                all_links = responseSelector.xpath('*//a/@href').extract()
-                item['connect_links'] = all_links
+                item['prev_link'] = response.request.headers.get('Referer', None)
                 yield item
+        return 
 
-    def parse(self, response):
-        for link in SgmlLinkExtractor(allow ="https://en\.wikipedia\.org/wiki/.+_.+", 
-                    deny = [
-                        "https://en\.wikipedia\.org/wiki/Wikipedia.*",
-                        "https://en\.wikipedia\.org/wiki/Main_Page",
-                        "https://en\.wikipedia\.org/wiki/Free_Content",
-                        "https://en\.wikipedia\.org/wiki/Talk.*",
-                        "https://en\.wikipedia\.org/wiki/Portal.*",
-                        "https://en\.wikipedia\.org/wiki/Special.*"
-                    ]).extract_links(response):
-            yield scrapy.http.Request(response.urljoin(link.url),callback=self.filter_links)
+# Modifying source code of scrapy
+# ---------------------------------------------------------------------------------------
+
+    def process_results(self, response, results):
+        return results
+
+    # yes 
+    def _build_request(self, rule, link):
+        r = Request(url=link.url, callback=self._response_downloaded)
+        r.meta.update(rule=rule, link_text=link.text)
+        return r
+
+    # yes 
+    def _requests_to_follow(self, response):
+        if not isinstance(response, HtmlResponse):
+            return
+        # seen = set() Made this a global variable to save all seen values
+        checker = self.filter_links(response).next()
+        if checker is not None:
+            for n, rule in enumerate(self._rules):
+                links = []
+                for lnk in rule.link_extractor.extract_links(response):
+                    if lnk not in seen:
+                        links.append(lnk)
+                if links and rule.process_links:
+                    links = rule.process_links(links)
+                for link in links:
+                    seen.add(link)
+                    r = self._build_request(n, link)
+                    yield rule.process_request(r)
+
+    # yes 
+    def _response_downloaded(self, response):
+        rule = self._rules[response.meta['rule']]
+        return self._parse_response(response, rule.callback, rule.cb_kwargs, rule.follow)
+
+    # yes 
+    def _parse_response(self, response, callback, cb_kwargs, follow=True):
+        if callback:
+            cb_res = callback(response, **cb_kwargs) or ()
+            cb_res = self.process_results(response, cb_res)
+            for requests_or_item in iterate_spider_output(cb_res):
+                yield requests_or_item
+
+        if follow and self._follow_links:
+            for request_or_item in self._requests_to_follow(response):
+                yield request_or_item
