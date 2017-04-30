@@ -13,3 +13,8 @@ class WikiscrapeItem(scrapy.Item):
 	link = scrapy.Field()
 	prev_link = scrapy.Field()
 	description = scrapy.Field()
+
+class ConnectedNodeItem(scrapy.Item):
+	source_link = scrapy.Field()
+	existent_link = scrapy.Field()
+
